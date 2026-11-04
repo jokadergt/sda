@@ -1,0 +1,81 @@
+name: Build Galo Executor Windows x64
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - uses: microsoft/setup-msbuild@v2
+      - name: Check source files
+        shell: pwsh
+        run: |
+          foreach ($path in @('Galo.sln','Galo/Galo.vcxproj','GaloUI/GaloUI.csproj','vcpkg.json')) {
+            if (!(Test-Path $path)) { throw "Missing source file: $path" }
+          }
+      - name: Setup vcpkg
+        shell: pwsh
+        run: |
+          $vcpkg = Join-Path $env:RUNNER_TEMP 'vcpkg'
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git $vcpkg
+          & "$vcpkg\bootstrap-vcpkg.bat" -disableMetrics
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "VCPKG_ROOT=$vcpkg" >> $env:GITHUB_ENV
+      - name: Install native dependencies
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x64-windows --x-manifest-root "$env:GITHUB_WORKSPACE"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Restore WPF dependencies
+        shell: pwsh
+        run: |
+          dotnet restore GaloUI/GaloUI.csproj --runtime win-x64
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build native DLL
+        shell: pwsh
+        run: |
+          msbuild Galo/Galo.vcxproj /m /p:Configuration=Release /p:Platform=x64 /p:VcpkgTriplet=x64-windows /p:VcpkgRoot="$env:VCPKG_ROOT\" /p:VcpkgEnableManifest=true /verbosity:minimal /bl:build-native.binlog
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Publish WPF
+        shell: pwsh
+        run: |
+          dotnet publish GaloUI/GaloUI.csproj -c Release -r win-x64 --self-contained false --no-restore -p:Platform=x64 -o dist
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package outputs
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem -Path . -Recurse -Filter Galo.dll -File | Where-Object { $_.FullName -notmatch 'vcpkg' } | Select-Object -First 1
+          if (-not $dll) { throw 'Native DLL missing' }
+          Copy-Item $dll.FullName dist/Galo.dll -Force
+          if (!(Test-Path dist/GaloUI.exe)) { throw 'WPF executable missing' }
+          Compress-Archive -Path dist/* -DestinationPath Galo-Executor-Windows-x64.zip -Force
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer/Galo.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galo-Executor-Windows-x64
+          path: Galo-Executor-Windows-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Galo-Executor-v2.1-Setup-x64
+          path: installer-output/*.exe
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-diagnostics
+          path: build-native.binlog
+          if-no-files-found: ignore
