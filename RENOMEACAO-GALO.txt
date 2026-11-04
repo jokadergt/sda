@@ -1,0 +1,1 @@
+Renomeação Xeno -> Galo em nomes de projetos, arquivos, namespaces, DLL e identificadores. URLs externos originais preservados para evitar quebrar endpoints e atribuição. Recompilar DLL nativa e UI juntas. Não compilado/testado neste ambiente.

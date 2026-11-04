@@ -1,0 +1,5 @@
+Galo Executor 2.0 — pacote de distribuição
+
+Esta versão reorganiza e republica o código-fonte da v1.9 para facilitar o download.
+Não é um EXE compilado. O suporte direto a Roblox Studio como processo de execução ainda não foi implementado.
+Não há garantia de funcionamento no Roblox Client sem compilação e testes em Windows.
